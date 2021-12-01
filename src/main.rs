@@ -1,3 +1,6 @@
+mod day01;
+
 fn main() {
-    println!("Hello, world!");
+    day01::step1();
+    day01::step2();
 }
