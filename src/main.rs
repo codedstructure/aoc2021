@@ -1,6 +1,6 @@
-mod day16;
+mod day17;
 
 fn main() {
-    day16::step1();
-    day16::step2();
+    day17::step1();
+    day17::step2();
 }
