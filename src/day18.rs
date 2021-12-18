@@ -104,38 +104,79 @@ impl Sfn {
         }
     }
 
-    fn augment_left(&self, i: i32) -> Sfn {
+    fn explode(&self) -> Sfn {
+        if !self.explosive() {
+            return self.clone();
+        }
+        let mut add_to_next = 0;
+        let mut add_to_prev = 0;
+        let mut last_reg_idx = 0;
+        let mut acted = false;
+        let s = self.visit(
+            &mut acted,
+            &mut add_to_next,
+            &mut add_to_prev,
+            &mut last_reg_idx,
+        );
+        s.add_to_previous(last_reg_idx - 1, add_to_prev)
+    }
+
+    fn add_to_previous(&self, add_idx: i32, value: i32) -> Sfn {
+        let mut reg_idx = 0;
+        self.add_to_previous_inner(&mut reg_idx, add_idx, value)
+    }
+    fn add_to_previous_inner(&self, reg_idx: &mut i32, last_reg_idx: i32, add_value: i32) -> Sfn {
         match self {
-            Sfn::Regular(x, d) => Sfn::Regular(*x + i, *d),
-            Sfn::Pair(a, b, d) => Sfn::pair(a.augment_right(i), *b.clone(), *d),
+            Sfn::Regular(x, d) => {
+                let mut v = *x;
+                if *reg_idx == last_reg_idx {
+                    v += add_value;
+                }
+                *reg_idx += 1;
+                Sfn::Regular(v, *d)
+            }
+            Sfn::Pair(a, b, d) => Sfn::pair(
+                a.add_to_previous_inner(reg_idx, last_reg_idx, add_value),
+                b.add_to_previous_inner(reg_idx, last_reg_idx, add_value),
+                *d,
+            ),
         }
     }
 
-    fn augment_right(&self, i: i32) -> Sfn {
+    fn visit(
+        &self,
+        acted: &mut bool,
+        add_to_next: &mut i32,
+        add_to_previous: &mut i32,
+        last_reg_idx: &mut i32,
+    ) -> Sfn {
         match self {
-            Sfn::Regular(x, d) => Sfn::Regular(*x + i, *d),
-            Sfn::Pair(a, b, d) => Sfn::pair(*a.clone(), b.augment_left(i), *d),
-        }
-    }
+            Sfn::Regular(x, d) => {
+                let add = *add_to_next;
+                *add_to_next = 0;
+                if !*acted {
+                    *last_reg_idx += 1;
+                }
+                Sfn::Regular(x + add, *d)
+            }
+            Sfn::Pair(a, b, d) => {
+                if !*acted && self.simple_pair() && self.depth() >= 4 {
+                    // explode this pair
+                    let (add_prev, add_next) = self.to_pair().unwrap();
+                    *add_to_next = add_next;
+                    *add_to_previous = add_prev;
+                    *acted = true;
 
-    fn find_explode_pair(&self) -> Option<Sfn> {
-        match self {
-            Sfn::Regular(_, _) => None,
-            Sfn::Pair(a, b, _) => {
-                if self.depth() >= 4 && self.simple_pair() {
-                    return Some(self.clone());
+                    Sfn::Regular(0, *d)
+                } else {
+                    Sfn::pair(
+                        a.visit(acted, add_to_next, add_to_previous, last_reg_idx),
+                        b.visit(acted, add_to_next, add_to_previous, last_reg_idx),
+                        *d,
+                    )
                 }
-                let z = a.find_explode_pair();
-                if z.is_some() {
-                    return z;
-                }
-                b.find_explode_pair()
             }
         }
-    }
-
-    fn explode(&self) -> Sfn {
-        unimplemented!()
     }
 
     fn add(&self, other: Sfn) -> Sfn {
@@ -152,14 +193,14 @@ impl Sfn {
     fn reduce(&self) -> Sfn {
         let mut previous = self.clone();
         loop {
-            let mut result = self.explode();
+            let mut result = previous.explode();
             if result == previous {
-                result = self.split();
+                result = result.split();
             }
             if result == previous {
                 break result;
             }
-            previous = result;
+            previous = result.clone();
         }
     }
 
@@ -215,7 +256,6 @@ pub fn step1() {
 
     for line in read_list("inputs/day18.txt") {
         let next_sfn = Sfn::from_str(&line);
-        println!("{}", next_sfn.to_string());
         if let Some(sfn) = result {
             result = Some(sfn.add(next_sfn).reduce());
         } else {
@@ -223,10 +263,29 @@ pub fn step1() {
         }
     }
 
+    // 3359
     println!("Magnitude: {}", result.unwrap().magnitude());
 }
 
-pub fn step2() {}
+pub fn step2() {
+    let mut max_mag = 0;
+    for line1 in read_list("inputs/day18.txt") {
+        for line2 in read_list("inputs/day18.txt") {
+            if line1 == line2 {
+                continue;
+            }
+            let mag = Sfn::from_str(&line1)
+                .add(Sfn::from_str(&line2))
+                .reduce()
+                .magnitude();
+            if mag > max_mag {
+                max_mag = mag;
+            }
+        }
+    }
+    // 4616
+    println!("Max Magnitude: {}", max_mag);
+}
 
 #[cfg(test)]
 mod tests {
@@ -279,8 +338,6 @@ mod tests {
         assert_eq!(Sfn::make_pair(12, 3, 0).split(), Sfn::from_str("[[6,6],3]"));
         assert_eq!(Sfn::make_pair(3, 11, 0).split(), Sfn::from_str("[3,[5,6]]"));
         // Check it only applies to the first entry
-        //   left: `Pair(Pair(Regular(5, 3), Regular(5, 3), 2), Pair(Regular(5, 3), Regular(6, 3), 2), 1)`,
-        //  right: `Pair(Pair(Regular(5, 3), Regular(5, 3), 2), Regular(11, 2), 1)`', src/day18.rs:169:9
         assert_eq!(
             Sfn::make_pair(10, 11, 0).split(),
             Sfn::from_str("[5,5]").add(Sfn::Regular(11, 0))
@@ -303,14 +360,6 @@ mod tests {
     }
 
     #[test]
-    fn test_find_explode_pair() {
-        let s = Sfn::from_str("[[[[1,[2,3]],2],5],3]").find_explode_pair();
-        assert_eq!(s.unwrap().to_pair(), Some((2, 3)));
-        let s = Sfn::from_str("[[3,[2,[1,[7,3]]]],[6,[5,[4,[3,2]]]]]").find_explode_pair();
-        assert_eq!(s.unwrap().to_pair(), Some((7, 3)));
-    }
-
-    //#[test]
     fn test_explode_left() {
         assert_eq!(
             Sfn::from_str("[[[[[9,8],1],2],3],4]").explode(),
@@ -318,7 +367,7 @@ mod tests {
         );
     }
 
-    //#[test]
+    #[test]
     fn test_explode_right() {
         assert_eq!(
             Sfn::from_str("[7,[6,[5,[4,[3,2]]]]]").explode(),
@@ -326,7 +375,7 @@ mod tests {
         );
     }
 
-    //#[test]
+    #[test]
     fn test_explode() {
         assert_eq!(
             Sfn::from_str("[[6,[5,[4,[3,2]]]],1]").explode(),
@@ -352,6 +401,16 @@ mod tests {
         assert_eq!(
             Sfn::from_str("[[1,2],[[3,4],5]]").to_string(),
             "[[1,2],[[3,4],5]]".to_string()
+        );
+    }
+
+    #[test]
+    fn test_reduce() {
+        assert_eq!(
+            Sfn::from_str("[[[[4,3],4],4],[7,[[8,4],9]]]")
+                .add(Sfn::from_str("[1,1]"))
+                .reduce(),
+            Sfn::from_str("[[[[0,7],4],[[7,8],[6,0]]],[8,1]]")
         );
     }
 }
