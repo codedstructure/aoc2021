@@ -137,7 +137,6 @@ impl Scanner {
                     let offset_scanner = rot_scanner.translate(&beacon_delta);
 
                     if self.count_matches(&offset_scanner) >= 12 {
-                        println!("Match at offset {:?}", &beacon_delta);
                         return Some((offset_scanner, beacon_delta));
                     }
                 }
@@ -172,54 +171,51 @@ impl ScannerMap {
 
         Self { scanners }
     }
+
+    fn build_map(&self) -> (HashMap<i32, Scanner>, HashSet<Delta>) {
+        let mut sm_fixed = HashMap::new();
+        sm_fixed.insert(0, self.scanners[0].clone());
+        let mut offsets = HashSet::new();
+
+        while sm_fixed.len() < self.scanners.len() {
+            for o in sm_fixed.clone().values() {
+                for s in &self.scanners {
+                    if sm_fixed.contains_key(&s.ident) {
+                        continue;
+                    }
+                    if let Some((fixed, offset)) = o.overlaps(s) {
+                        // println!("Got overlap {} with {} at offset {:?}",
+                        //          o.ident, s.ident, &offset);
+                        sm_fixed.insert(s.ident, fixed);
+                        offsets.insert(offset);
+                    }
+                }
+            }
+        }
+        (sm_fixed, offsets)
+    }
 }
 
 pub fn step1() {
     let sm = ScannerMap::new("inputs/day19.txt");
-    println!("Scanner data: {:?}", sm);
-    println!("Scanner count: {}", sm.scanners.len());
-    for s in &sm.scanners {
-        println!(" - beacon count: {}", s.beacons.len());
-    }
 
-    let mut sm_fixed = HashMap::new();
-    sm_fixed.insert(0, sm.scanners[0].clone());
-
-    let mut paired_with: HashMap<i32, HashSet<i32>> = HashMap::new();
-    let mut offsets = HashSet::new();
-
-    while sm_fixed.len() < sm.scanners.len() {
-        for o in sm_fixed.clone().values() {
-            for s in &sm.scanners {
-                if sm_fixed.contains_key(&s.ident) {
-                    continue;
-                }
-                if let Some((fixed, offset)) = o.overlaps(s) {
-                    println!("Got overlap {} with {}", o.ident, s.ident);
-
-                    let mut pair_set = paired_with.entry(o.ident).or_insert(HashSet::new());
-                    pair_set.insert(s.ident);
-                    pair_set = paired_with.entry(s.ident).or_insert(HashSet::new());
-                    pair_set.insert(o.ident);
-
-                    sm_fixed.insert(s.ident, fixed);
-                    offsets.insert(offset);
-
-                    break;
-                }
-            }
-        }
-    }
-
-    println!("pairs: {:?}", paired_with);
+    let (fixed, _) = sm.build_map();
 
     let mut beacons_fixed = HashSet::new();
-    for smf in sm_fixed.values() {
+    for smf in fixed.values() {
         for bf in &smf.beacons {
             beacons_fixed.insert(bf);
         }
     }
     println!("Beacon count: {}", beacons_fixed.len());
+}
+
+pub fn step2() {
+    // yes it is silly rebuilding this again for part2 since it's slow,
+    // but I'm going for consistency of the 'framework'... :)
+    let sm = ScannerMap::new("inputs/day19.txt");
+
+    let (_, offsets) = sm.build_map();
 
     let mut max_distance = 0;
     for s1 in &offsets {
@@ -235,5 +231,3 @@ pub fn step1() {
     }
     println!("Max distance: {}", max_distance);
 }
-
-pub fn step2() {}
