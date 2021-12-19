@@ -1,5 +1,5 @@
 use std::{
-    collections::HashSet,
+    collections::{HashMap, HashSet},
     fs::File,
     io::{BufRead, BufReader},
 };
@@ -64,7 +64,7 @@ impl Delta {
     }
 }
 
-#[derive(Debug, Default, PartialEq)]
+#[derive(Debug, Default, PartialEq, Clone)]
 struct Scanner {
     beacons: HashSet<Delta>,
 
@@ -178,25 +178,37 @@ pub fn step1() {
         println!(" - beacon count: {}", s.beacons.len());
     }
 
-    let mut sm_fixed = vec![];
+    let mut sm_fixed = HashMap::new();
+    sm_fixed.insert(0, sm.scanners[0].clone());
 
-    for o in &sm.scanners {
-        for s in &sm.scanners {
-            if o == s {
-                continue;
-            }
-            if let Some(fixed) = o.overlaps(s) {
-                println!("Got overlap {} with {}", o.ident, s.ident);
-                // TODO: work out offset relative to sm.scanners[0], not just
-                // the one it overlaps with
-                sm_fixed.push(fixed);
-                break;
+    let mut paired_with: HashMap<i32, HashSet<i32>> = HashMap::new();
+
+    while sm_fixed.len() < sm.scanners.len() {
+        for o in sm_fixed.clone().values() {
+            for s in &sm.scanners {
+                if sm_fixed.contains_key(&s.ident) {
+                    continue;
+                }
+                if let Some(fixed) = o.overlaps(s) {
+                    println!("Got overlap {} with {}", o.ident, s.ident);
+
+                    let mut pair_set = paired_with.entry(o.ident).or_insert(HashSet::new());
+                    pair_set.insert(s.ident);
+                    pair_set = paired_with.entry(s.ident).or_insert(HashSet::new());
+                    pair_set.insert(o.ident);
+
+                    sm_fixed.insert(s.ident, fixed);
+
+                    break;
+                }
             }
         }
     }
 
+    println!("pairs: {:?}", paired_with);
+
     let mut beacons_fixed = HashSet::new();
-    for smf in &sm_fixed {
+    for smf in sm_fixed.values() {
         for bf in &smf.beacons {
             beacons_fixed.insert(bf);
         }
