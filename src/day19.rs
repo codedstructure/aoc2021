@@ -62,6 +62,10 @@ impl Delta {
             _ => self.clone(),
         }
     }
+
+    fn mdist(&self, other: &Self) -> i32 {
+        (self.0 - other.0).abs() + (self.1 - other.1).abs() + (self.2 - other.2).abs()
+    }
 }
 
 #[derive(Debug, Default, PartialEq, Clone)]
@@ -120,7 +124,7 @@ impl Scanner {
         count
     }
 
-    fn overlaps(&self, other: &Scanner) -> Option<Scanner> {
+    fn overlaps(&self, other: &Scanner) -> Option<(Scanner, Delta)> {
         // are there at least 12 beacons in `other` which could overlap?
         for dir in 0..24 {
             let rot_scanner = other.rotate(dir);
@@ -134,7 +138,7 @@ impl Scanner {
 
                     if self.count_matches(&offset_scanner) >= 12 {
                         println!("Match at offset {:?}", &beacon_delta);
-                        return Some(offset_scanner);
+                        return Some((offset_scanner, beacon_delta));
                     }
                 }
             }
@@ -182,6 +186,7 @@ pub fn step1() {
     sm_fixed.insert(0, sm.scanners[0].clone());
 
     let mut paired_with: HashMap<i32, HashSet<i32>> = HashMap::new();
+    let mut offsets = HashSet::new();
 
     while sm_fixed.len() < sm.scanners.len() {
         for o in sm_fixed.clone().values() {
@@ -189,7 +194,7 @@ pub fn step1() {
                 if sm_fixed.contains_key(&s.ident) {
                     continue;
                 }
-                if let Some(fixed) = o.overlaps(s) {
+                if let Some((fixed, offset)) = o.overlaps(s) {
                     println!("Got overlap {} with {}", o.ident, s.ident);
 
                     let mut pair_set = paired_with.entry(o.ident).or_insert(HashSet::new());
@@ -198,6 +203,7 @@ pub fn step1() {
                     pair_set.insert(o.ident);
 
                     sm_fixed.insert(s.ident, fixed);
+                    offsets.insert(offset);
 
                     break;
                 }
@@ -214,6 +220,20 @@ pub fn step1() {
         }
     }
     println!("Beacon count: {}", beacons_fixed.len());
+
+    let mut max_distance = 0;
+    for s1 in &offsets {
+        for s2 in &offsets {
+            if s1 == s2 {
+                continue;
+            }
+            let distance = s1.mdist(s2);
+            if distance > max_distance {
+                max_distance = distance;
+            }
+        }
+    }
+    println!("Max distance: {}", max_distance);
 }
 
 pub fn step2() {}
