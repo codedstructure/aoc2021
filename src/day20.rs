@@ -11,11 +11,8 @@ pub fn read_list(filename: &str) -> Vec<String> {
 #[derive(Debug, Clone)]
 struct Image {
     pixels: Vec<Vec<u8>>,
-
     algorithm: Vec<u8>,
-
     background: u8,
-
     line_width: usize,
 }
 
@@ -61,11 +58,10 @@ impl Image {
 
         let mut background = self.background;
 
-        // Rust: I really want to use range -1 .. len + 2, but -1 isn't a
-        // valid usize, and slices operate on that rather than e.g. i32
-        for r in 0..self.pixels.len() + 2 {
+        // evaluate new image including a 1 pixel border around current extent
+        for r in -1..=self.pixels.len() as i32 + 1 {
             let mut new_row = vec![];
-            for c in 0..self.line_width + 2 {
+            for c in -1..self.line_width as i32 + 1 {
                 let index = self.surround_value(r, c);
                 let algo_result = self.algorithm[index];
                 new_row.push(algo_result);
@@ -73,12 +69,16 @@ impl Image {
             pixels.push(new_row);
         }
 
+        // Check what happens at an arbitrary point a long way away from our
+        // image, represented by the `background` value.
         if self.background == 0u8 && algorithm[0] == 1 {
-            // the inifinite plain is 'dark', but won't be next time
+            // algorithm 0 is used when self & surrounding are all dark.
+            // the infinite plane is 'dark', but won't be next time
             background = 1u8;
         }
         if self.background == 1u8 && self.algorithm[511] == 0 {
-            // the inifinite plain is 'lit', but won't be next time
+            // algorithm 511 is used when self & surrounding are all lit
+            // the infinite plane is 'lit', but won't be next time
             background = 0u8;
         }
 
@@ -90,29 +90,20 @@ impl Image {
         }
     }
 
-    fn surround_value(&self, row: usize, col: usize) -> usize {
-        // Note: row/col both have +1 offsets, which is why we do the -2
-        // rather than just -1 on ri / ci below...
-        // Yes this is hacky and ties it to `enhance()`, but avoids having
-        // to do the usize/i32 hack in two places. I think.
+    fn surround_value(&self, row: i32, col: i32) -> usize {
         let mut v: usize = 0;
-        for r in row..row + 3 {
-            // Rust: I want to iterate x-1..=x+1 and use that in a Vec::get(),
-            // both of which only operate on usize. Convert to i32 for fixing
-            // up, then back to usize in the get. Maybe there's a better way?
-            let ri: i32 = (r as i32) - 2;
+        for r in row - 1..=row + 1 {
             // Rust question: not sure about this, I want to create the
             // empty vec on-demand, but that's subject to a 'temporary
             // freed while still in use' error. The clone fixes that, but
             // feels very hacky, since most of the time it is unnecessary.
             let line = self
                 .pixels
-                .get(ri as usize)
+                .get(r as usize)
                 .unwrap_or(&vec![self.background; self.line_width])
                 .clone();
-            for c in col..col + 3 {
-                let ci = (c as i32) - 2;
-                let p = line.get(ci as usize).unwrap_or(&self.background);
+            for c in col - 1..=col + 1 {
+                let p = line.get(c as usize).unwrap_or(&self.background);
                 v = (v << 1) | *p as usize;
             }
         }
