@@ -1,4 +1,5 @@
 use std::{
+    cmp::{max, min},
     collections::HashSet,
     fs::File,
     io::{BufRead, BufReader},
@@ -11,9 +12,9 @@ pub fn read_list(filename: &str) -> Vec<String> {
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 struct Region {
-    x: (i32, i32),
-    y: (i32, i32),
-    z: (i32, i32),
+    x: (i64, i64),
+    y: (i64, i64),
+    z: (i64, i64),
 }
 
 impl Region {
@@ -23,14 +24,14 @@ impl Region {
         let y = extents.next().unwrap().strip_prefix("y=").unwrap();
         let z = extents.next().unwrap().strip_prefix("z=").unwrap();
 
-        let pairify = |v: Vec<i32>| {
+        let pairify = |v: Vec<i64>| {
             let mut vi = v.iter();
             (*vi.next().unwrap(), *vi.next().unwrap())
         };
         Region {
-            x: pairify(x.split("..").map(|v| v.parse::<i32>().unwrap()).collect()),
-            y: pairify(y.split("..").map(|v| v.parse::<i32>().unwrap()).collect()),
-            z: pairify(z.split("..").map(|v| v.parse::<i32>().unwrap()).collect()),
+            x: pairify(x.split("..").map(|v| v.parse::<i64>().unwrap()).collect()),
+            y: pairify(y.split("..").map(|v| v.parse::<i64>().unwrap()).collect()),
+            z: pairify(z.split("..").map(|v| v.parse::<i64>().unwrap()).collect()),
         }
     }
 
@@ -43,22 +44,195 @@ impl Region {
             && self.z.1 >= other.z.0
     }
 
-    fn volume(&self) -> i32 {
+    fn split_x(
+        &self,
+        s: (Option<(i64, i64)>, Option<(i64, i64)>, Option<(i64, i64)>),
+    ) -> HashSet<Region> {
+        let mut result = HashSet::new();
+        //println!("split_x {:?} at {:?}", self, s);
+        // Check s is in range; also impossible to split a one-width region.
+        //assert!(s > self.x.0 && s <= self.x.1);
+        if let Some(x_1) = s.0 {
+            result.insert(Region {
+                x: x_1,
+                y: self.y,
+                z: self.z,
+            });
+        }
+        if let Some(x_2) = s.1 {
+            result.insert(Region {
+                x: x_2,
+                y: self.y,
+                z: self.z,
+            });
+        }
+        if let Some(x_3) = s.2 {
+            result.insert(Region {
+                x: x_3,
+                y: self.y,
+                z: self.z,
+            });
+        }
+        result
+    }
+    fn split_y(
+        &self,
+        s: (Option<(i64, i64)>, Option<(i64, i64)>, Option<(i64, i64)>),
+    ) -> HashSet<Region> {
+        let mut result = HashSet::new();
+        //println!("split_y {:?} at {:?}", self, s);
+        // Check s is in range; also impossible to split a one-width region.
+        //assert!(s > self.x.0 && s <= self.x.1);
+        if let Some(y_1) = s.0 {
+            result.insert(Region {
+                x: self.x,
+                y: y_1,
+                z: self.z,
+            });
+        }
+        if let Some(y_2) = s.1 {
+            result.insert(Region {
+                x: self.x,
+                y: y_2,
+                z: self.z,
+            });
+        }
+        if let Some(y_3) = s.2 {
+            result.insert(Region {
+                x: self.x,
+                y: y_3,
+                z: self.z,
+            });
+        }
+        result
+    }
+    fn split_z(
+        &self,
+        s: (Option<(i64, i64)>, Option<(i64, i64)>, Option<(i64, i64)>),
+    ) -> HashSet<Region> {
+        let mut result = HashSet::new();
+        // println!("split_z {:?} at {:?}", self, s);
+        // Check s is in range; also impossible to split a one-width region.
+        //assert!(s > self.x.0 && s <= self.x.1);
+        if let Some(z_1) = s.0 {
+            result.insert(Region {
+                x: self.x,
+                y: self.y,
+                z: z_1,
+            });
+        }
+        if let Some(z_2) = s.1 {
+            result.insert(Region {
+                x: self.x,
+                y: self.y,
+                z: z_2,
+            });
+        }
+        if let Some(z_3) = s.2 {
+            result.insert(Region {
+                x: self.x,
+                y: self.y,
+                z: z_3,
+            });
+        }
+        result
+    }
+
+    fn contained(span: (i64, i64), other: (i64, i64)) -> bool {
+        other.0 >= span.0 && other.1 <= span.1
+    }
+    fn disjoint(span: (i64, i64), other: (i64, i64)) -> bool {
+        other.1 < span.0 || other.0 > span.1
+    }
+    fn split_points(
+        span: (i64, i64),
+        other: (i64, i64),
+    ) -> (Option<(i64, i64)>, Option<(i64, i64)>, Option<(i64, i64)>) {
+        // The returned split point(s) are always *outside* the span.
+        //println!(" split_points {:?} {:?} ", span, other);
+        assert!(span.0 <= span.1);
+        assert!(other.0 <= other.1);
+
+        if Region::contained(span, other) {
+            return (None, Some(other), None);
+        }
+        if Region::disjoint(span, other) {
+            return (Some(span), None, Some(other));
+        }
+
+        let mut left = None;
+        let mut left_center = span;
+        let mut right = None;
+        let mut right_center = span;
+
+        // we have overlap
+        if other.1 > span.1 {
+            right = Some((span.1 + 1, other.1));
+            right_center = (other.0, span.1);
+        }
+        if other.0 < span.0 {
+            left = Some((other.0, span.0 - 1));
+            left_center = (span.0, other.1);
+        }
+        let center = Some((
+            max(left_center.0, right_center.0),
+            min(left_center.1, right_center.1),
+        ));
+        //println!(" -> ({:?}, {:?})", left, right);
+        (left, center, right)
+    }
+
+    fn split_against(&self, other: Region) -> HashSet<Region> {
+        let mut splitx = HashSet::new();
+        //println!("extension: {:?} / {:?}", self, other);
+        let splits_x = Region::split_points(self.x, other.x);
+        for rp in other.split_x(splits_x) {
+            splitx.insert(rp);
+        }
+        //println!(" Following splitx: {:?}", splitx);
+        let mut splitxy = HashSet::new();
+        for v in splitx {
+            if self.overlaps(v) {
+                let splits_y = Region::split_points(self.y, v.y);
+                for rp in v.split_y(splits_y) {
+                    splitxy.insert(rp);
+                }
+            } else {
+                splitxy.insert(v);
+            }
+        }
+        //println!(" Following splitxy: {:?}", splitxy);
+        let mut splitxyz = HashSet::new();
+        for v in splitxy {
+            if self.overlaps(v) {
+                let splits_z = Region::split_points(self.z, v.z);
+                for rp in v.split_z(splits_z) {
+                    splitxyz.insert(rp);
+                }
+            } else {
+                splitxyz.insert(v);
+            }
+        }
+        //println!(" Following splitxyz: {:?}", splitxyz);
+        splitxyz
+    }
+
+    fn volume(&self) -> i64 {
         // +1s below because regions are inclusive of endpoints
         (self.x.1 - self.x.0 + 1) * (self.y.1 - self.y.0 + 1) * (self.z.1 - self.z.0 + 1)
     }
 
-    fn contains(&self, other: Region) -> bool {
-        other.x.1 <= self.x.1
-            && other.x.0 >= self.x.0
-            && other.y.1 <= self.y.1
-            && other.y.0 >= self.y.0
-            && other.z.1 <= self.z.1
-            && other.z.0 >= self.z.0
+    fn is_contained_by(&self, other: Region) -> bool {
+        other.x.0 <= self.x.0
+            && other.x.1 >= self.x.1
+            && other.y.0 <= self.y.0
+            && other.y.1 >= self.y.1
+            && other.z.0 <= self.z.0
+            && other.z.1 >= self.z.1
     }
 
     fn is_init_region(&self) -> bool {
-        self.overlaps(Region {
+        self.is_contained_by(Region {
             x: (-50, 50),
             y: (-50, 50),
             z: (-50, 50),
@@ -77,17 +251,30 @@ impl RegionSet {
             regions: HashSet::new(),
         }
     }
-    fn total_volume(&self) -> i32 {
+
+    fn total_volume(&self) -> i64 {
         self.regions.iter().map(|r| r.volume()).sum()
     }
 
-    fn contained(&self, r: Region) -> bool {
+    /*
+    fn contains(&self, r: Region) -> bool {
         for test in &self.regions {
             if test.contains(r) {
                 return true;
             }
         }
         false
+    }*/
+
+    fn check_disjoint(&self) {
+        for r in &self.regions {
+            for s in &self.regions {
+                if s == r {
+                    continue;
+                }
+                assert!(!r.overlaps(*s));
+            }
+        }
     }
 
     fn overlaps(&self, r: Region) -> bool {
@@ -99,26 +286,84 @@ impl RegionSet {
         false
     }
 
-    fn add(&mut self, r: Region) {
-        if self.contained(r) {
-            // nothing to do, hurrah!
-            return;
-        } else if !self.overlaps(r) {
-            // disjoint already, just add it.
-            self.regions.insert(r);
+    fn add(&mut self, new_region: Region) {
+        //println!("Add: {:?}", new_region);
+        let mut add_recurse = HashSet::new();
+        let mut to_remove = HashSet::new();
+        let mut disjoint = true;
+        for this in &self.regions {
+            if new_region.is_contained_by(*this) {
+                // nothing to do, hurrah!
+                return;
+            }
+            if this.is_contained_by(new_region) {
+                // replace this with the new_region - has been assimilated.
+                // the new region could replace multiple of our regions.
+                // Note set behaviour is important here.
+                add_recurse.insert(new_region);
+                to_remove.insert(*this);
+                //println!(" - replacing {:?} with containing {:?}", this, r);
+                disjoint = false;
+            } else if this.overlaps(new_region) {
+                disjoint = false;
+                // split_against naming seems odd...
+                for ext in this.split_against(new_region) {
+                    //println!(" Considering region {:?} for add", ext);
+                    if !ext.overlaps(*this) {
+                        // we may need to split further against other
+                        // existing regions.
+                        add_recurse.insert(ext.clone());
+                    }
+                }
+                // as soon as we hit an overlap we break the thing to
+                // pieces and try to add those recursively.
+                break;
+            }
+        }
+
+        if disjoint {
+            //println!("   Adding disjoint region {:?}", new_region);
+            self.regions.insert(new_region);
+            assert!(to_remove.is_empty());
+            self.check_disjoint();
             return;
         }
-        unimplemented!();
-        // work to do...
+
+        for reg in to_remove {
+            self.regions.remove(&reg);
+        }
+        //println!(" add_recurse: {:?}", add_recurse);
+        for reg in add_recurse {
+            self.add(reg);
+        }
+        //println!("Post-add: {:?}", self);
     }
 
     fn subtract(&mut self, r: Region) {
-        if !self.overlaps(r) {
-            // nothing to do, hurrah!
-            return;
+        //println!("Subtract: {:?} from {:?}", r, self);
+        let mut to_add = HashSet::new();
+        let mut to_remove = HashSet::new();
+
+        for reg in &self.regions {
+            if reg.overlaps(r) {
+                //println!("Subtracting region {:?} overlaps with {:?}", r, reg);
+                to_remove.insert(reg.clone());
+                let split_apart = r.split_against(*reg);
+                for part in split_apart {
+                    if !part.overlaps(r) {
+                        to_add.insert(part);
+                    }
+                }
+            }
         }
-        unimplemented!();
-        // work to do...
+        for reg in to_remove {
+            self.regions.remove(&reg);
+        }
+        for reg in to_add {
+            // This may be a bad idea, but consider recursively adding it.
+            self.add(reg);
+        }
+        //println!("Post-subtract: {:?}", self);
     }
 }
 
@@ -165,7 +410,10 @@ impl Reactor {
     }
 
     fn evaluate(&mut self) {
+        let mut x = 0;
         for instr in &self.instructions {
+            x += 1;
+            println!("  ** Instruction {}: {:?}", x, instr);
             if instr.r.is_init_region() {
                 if instr.on {
                     self.regions.add(instr.r);
@@ -173,12 +421,21 @@ impl Reactor {
                     self.regions.subtract(instr.r);
                 }
             }
+            println!(
+                "  ** New volume: {} ({})",
+                self.regions.total_volume(),
+                self.regions.regions.len()
+            );
+            //println!("  ** Regions: {:?}", self.regions);
+            println!();
+
+            self.regions.check_disjoint();
         }
     }
 }
 
 pub fn step1() {
-    let mut reactor = Reactor::new("inputs/sample22.txt");
+    let mut reactor = Reactor::new("inputs/day22.txt");
 
     println!("{:?}", reactor);
     reactor.evaluate();
@@ -222,12 +479,12 @@ mod tests {
         };
 
         assert!(unit.overlaps(unit));
-        assert!(unit.contains(unit));
+        assert!(unit.is_contained_by(unit));
 
         assert!(unit.overlaps(pair));
         assert!(pair.overlaps(unit));
-        assert!(!unit.contains(pair));
-        assert!(pair.contains(unit));
+        assert!(unit.is_contained_by(pair));
+        assert!(!pair.is_contained_by(unit));
     }
 
     #[test]
@@ -264,6 +521,46 @@ mod tests {
     }
 
     #[test]
+    fn test_add_overlap() {
+        let mut rs = RegionSet::new();
+        rs.add(Region {
+            x: (1, 2),
+            y: (1, 2),
+            z: (1, 2),
+        });
+        rs.add(Region {
+            x: (2, 3),
+            y: (2, 3),
+            z: (2, 3),
+        });
+        assert_eq!(rs.total_volume(), 15);
+        rs.add(Region {
+            x: (1, 2),
+            y: (1, 2),
+            z: (1, 10),
+        });
+        assert_eq!(rs.total_volume(), 46);
+        //assert_eq!(rs.regions.len(), 7);
+
+        rs = RegionSet::new();
+        rs.add(Region::from_str("x=1..3,y=1..3,z=1..1"));
+        assert_eq!(rs.regions.len(), 1);
+        assert_eq!(rs.total_volume(), 9);
+        rs.add(Region::from_str("x=1..6,y=2..4,z=1..1"));
+        // would be nice to just need 3 here...
+        //assert_eq!(rs.regions.len(), 4);
+        assert_eq!(rs.total_volume(), 21);
+
+        rs = RegionSet::new();
+        rs.add(Region::from_str("x=-20..26,y=-36..17,z=-47..7"));
+        assert_eq!(rs.regions.len(), 1);
+        assert_eq!(rs.total_volume(), 139590);
+        rs.add(Region::from_str("x=-20..33,y=-21..23,z=-26..28"));
+        //assert_eq!(rs.regions.len(), 8);
+        assert_eq!(rs.total_volume(), 210918);
+    }
+
+    #[test]
     fn test_subtract_disjoint() {
         let mut rs = RegionSet::new();
         rs.add(Region {
@@ -278,5 +575,81 @@ mod tests {
             z: (11, 15),
         });
         assert_eq!(rs.total_volume(), 125);
+    }
+
+    #[test]
+    fn test_subtract_overlap() {
+        let mut rs = RegionSet::new();
+        rs.add(Region {
+            x: (1, 6),
+            y: (2, 4),
+            z: (1, 1),
+        });
+        rs.subtract(Region {
+            x: (1, 3),
+            y: (1, 3),
+            z: (1, 1),
+        });
+        assert_eq!(rs.total_volume(), 12);
+
+        rs = RegionSet::new();
+        rs.add(Region {
+            x: (1, 3),
+            y: (1, 3),
+            z: (1, 1),
+        });
+        rs.subtract(Region {
+            x: (2, 2),
+            y: (2, 2),
+            z: (1, 1),
+        });
+        assert_eq!(rs.total_volume(), 8);
+    }
+
+    #[test]
+    fn test_split_against() {
+        let r1 = Region::from_str("x=1..2,y=1..2,z=1..2");
+        let r2 = Region::from_str("x=1..2,y=1..2,z=1..2");
+        let r3 = Region::from_str("x=2..3,y=2..3,z=2..3");
+        let r4 = Region::from_str("x=1..3,y=1..3,z=1..3");
+        let r5 = Region::from_str("x=2..2,y=2..2,z=2..2");
+        assert_eq!(r1.split_against(r2), HashSet::from([r1]));
+        assert_eq!(
+            r1.split_against(r3),
+            HashSet::from([
+                Region {
+                    x: (3, 3),
+                    y: (2, 3),
+                    z: (2, 3)
+                },
+                Region {
+                    x: (2, 2),
+                    y: (3, 3),
+                    z: (2, 3)
+                },
+                Region {
+                    x: (2, 2),
+                    y: (2, 2),
+                    z: (3, 3)
+                },
+                Region {
+                    x: (2, 2),
+                    y: (2, 2),
+                    z: (2, 2)
+                },
+            ])
+        );
+    }
+
+    #[test]
+    fn test_split_points() {
+        /*
+        assert_eq!(Region::split_points((1, 2), (2, 3)), (None, Some(3)));
+        assert_eq!(Region::split_points((2, 3), (1, 2)), (Some(1), None));
+        assert_eq!(Region::split_points((2, 10), (3, 5)), (None, None));
+        assert_eq!(Region::split_points((3, 5), (1, 50)), (Some(2), Some(6)));
+        assert_eq!(Region::split_points((3, 5), (3, 5)), (None, None));
+        assert_eq!(Region::split_points((-5, -2), (3, 5)), (None, None));
+        */
     }
 }
