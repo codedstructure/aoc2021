@@ -214,6 +214,7 @@ impl Region {
             }
         }
         //println!(" Following splitxyz: {:?}", splitxyz);
+        assert!(splitxyz.len() <= 7);
         splitxyz
     }
 
@@ -253,18 +254,9 @@ impl RegionSet {
     }
 
     fn total_volume(&self) -> i64 {
+        self.check_disjoint();
         self.regions.iter().map(|r| r.volume()).sum()
     }
-
-    /*
-    fn contains(&self, r: Region) -> bool {
-        for test in &self.regions {
-            if test.contains(r) {
-                return true;
-            }
-        }
-        false
-    }*/
 
     fn check_disjoint(&self) {
         for r in &self.regions {
@@ -277,25 +269,18 @@ impl RegionSet {
         }
     }
 
-    fn overlaps(&self, r: Region) -> bool {
-        for test in &self.regions {
-            if test.overlaps(r) {
-                return true;
-            }
-        }
-        false
-    }
-
     fn add(&mut self, new_region: Region) {
-        //println!("Add: {:?}", new_region);
         let mut add_recurse = HashSet::new();
         let mut to_remove = HashSet::new();
         let mut disjoint = true;
+
         for this in &self.regions {
             if new_region.is_contained_by(*this) {
                 // nothing to do, hurrah!
                 return;
             }
+        }
+        for this in &self.regions {
             if this.is_contained_by(new_region) {
                 // replace this with the new_region - has been assimilated.
                 // the new region could replace multiple of our regions.
@@ -304,20 +289,26 @@ impl RegionSet {
                 to_remove.insert(*this);
                 //println!(" - replacing {:?} with containing {:?}", this, r);
                 disjoint = false;
-            } else if this.overlaps(new_region) {
-                disjoint = false;
-                // split_against naming seems odd...
-                for ext in this.split_against(new_region) {
-                    //println!(" Considering region {:?} for add", ext);
-                    if !ext.overlaps(*this) {
-                        // we may need to split further against other
-                        // existing regions.
-                        add_recurse.insert(ext.clone());
+            }
+        }
+
+        if disjoint {
+            for this in &self.regions {
+                if this.overlaps(new_region) {
+                    disjoint = false;
+                    // split_against naming seems odd...
+                    for ext in this.split_against(new_region) {
+                        //println!(" Considering region {:?} for add", ext);
+                        if !ext.overlaps(*this) {
+                            // we may need to split further against other
+                            // existing regions.
+                            add_recurse.insert(ext);
+                        }
                     }
+                    // as soon as we hit an overlap we break the thing to
+                    // pieces and try to add those recursively.
+                    break;
                 }
-                // as soon as we hit an overlap we break the thing to
-                // pieces and try to add those recursively.
-                break;
             }
         }
 
@@ -337,6 +328,7 @@ impl RegionSet {
             self.add(reg);
         }
         //println!("Post-add: {:?}", self);
+        //
     }
 
     fn subtract(&mut self, r: Region) {
@@ -347,7 +339,7 @@ impl RegionSet {
         for reg in &self.regions {
             if reg.overlaps(r) {
                 //println!("Subtracting region {:?} overlaps with {:?}", r, reg);
-                to_remove.insert(reg.clone());
+                to_remove.insert(*reg);
                 let split_apart = r.split_against(*reg);
                 for part in split_apart {
                     if !part.overlaps(r) {
@@ -409,12 +401,12 @@ impl Reactor {
         }
     }
 
-    fn evaluate(&mut self) {
+    fn evaluate(&mut self, all_instructions: bool) {
         let mut x = 0;
         for instr in &self.instructions {
             x += 1;
             println!("  ** Instruction {}: {:?}", x, instr);
-            if instr.r.is_init_region() {
+            if all_instructions || instr.r.is_init_region() {
                 if instr.on {
                     self.regions.add(instr.r);
                 } else {
@@ -426,7 +418,6 @@ impl Reactor {
                 self.regions.total_volume(),
                 self.regions.regions.len()
             );
-            //println!("  ** Regions: {:?}", self.regions);
             println!();
 
             self.regions.check_disjoint();
@@ -438,11 +429,19 @@ pub fn step1() {
     let mut reactor = Reactor::new("inputs/day22.txt");
 
     println!("{:?}", reactor);
-    reactor.evaluate();
+    reactor.evaluate(false);
+    // 561032
     println!("total_volume {}", reactor.regions.total_volume());
 }
 
-pub fn step2() {}
+pub fn step2() {
+    let mut reactor = Reactor::new("inputs/day22.txt");
+
+    println!("{:?}", reactor);
+    reactor.evaluate(true);
+    // 1322825263376414
+    println!("total_volume {}", reactor.regions.total_volume());
+}
 
 #[cfg(test)]
 mod tests {
@@ -611,8 +610,6 @@ mod tests {
         let r1 = Region::from_str("x=1..2,y=1..2,z=1..2");
         let r2 = Region::from_str("x=1..2,y=1..2,z=1..2");
         let r3 = Region::from_str("x=2..3,y=2..3,z=2..3");
-        let r4 = Region::from_str("x=1..3,y=1..3,z=1..3");
-        let r5 = Region::from_str("x=2..2,y=2..2,z=2..2");
         assert_eq!(r1.split_against(r2), HashSet::from([r1]));
         assert_eq!(
             r1.split_against(r3),
