@@ -271,6 +271,7 @@ impl RegionSet {
 
     fn add(&mut self, new_region: Region) {
         let mut add_recurse = HashSet::new();
+        let mut to_add = HashSet::new();
         let mut to_remove = HashSet::new();
         let mut disjoint = true;
 
@@ -296,20 +297,22 @@ impl RegionSet {
             for this in &self.regions {
                 if this.overlaps(new_region) {
                     disjoint = false;
-                    // split_against naming seems odd...
-                    for ext in this.split_against(new_region) {
-                        //println!(" Considering region {:?} for add", ext);
-                        if !ext.overlaps(*this) {
-                            // we may need to split further against other
-                            // existing regions.
-                            add_recurse.insert(ext);
+                    // split the overlapped existing entry - first schedule
+                    // removing it, then add in all the non-overlapping parts
+                    // Since it started out as disjoint, we can directly add
+                    // the split parts without needing to recurse.
+                    to_remove.insert(*this);
+                    for ext in new_region.split_against(*this) {
+                        if !ext.overlaps(new_region) {
+                            // parts of previously existing region which
+                            // aren't overlapping the new region should be
+                            // re-added.
+                            to_add.insert(ext);
                         }
                     }
-                    // as soon as we hit an overlap we break the thing to
-                    // pieces and try to add those recursively.
-                    break;
                 }
             }
+            to_add.insert(new_region);
         }
 
         if disjoint {
@@ -324,6 +327,9 @@ impl RegionSet {
             self.regions.remove(&reg);
         }
         //println!(" add_recurse: {:?}", add_recurse);
+        for reg in to_add {
+            self.regions.insert(reg);
+        }
         for reg in add_recurse {
             self.add(reg);
         }
