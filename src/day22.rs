@@ -270,10 +270,8 @@ impl RegionSet {
     }
 
     fn add(&mut self, new_region: Region) {
-        let mut add_recurse = HashSet::new();
         let mut to_add = HashSet::new();
         let mut to_remove = HashSet::new();
-        let mut disjoint = true;
 
         for this in &self.regions {
             if new_region.is_contained_by(*this) {
@@ -281,70 +279,40 @@ impl RegionSet {
                 return;
             }
         }
-        for this in &self.regions {
-            if this.is_contained_by(new_region) {
-                // replace this with the new_region - has been assimilated.
-                // the new region could replace multiple of our regions.
-                // Note set behaviour is important here.
-                add_recurse.insert(new_region);
-                to_remove.insert(*this);
-                //println!(" - replacing {:?} with containing {:?}", this, r);
-                disjoint = false;
-            }
-        }
 
-        if disjoint {
-            for this in &self.regions {
-                if this.overlaps(new_region) {
-                    disjoint = false;
-                    // split the overlapped existing entry - first schedule
-                    // removing it, then add in all the non-overlapping parts
-                    // Since it started out as disjoint, we can directly add
-                    // the split parts without needing to recurse.
-                    to_remove.insert(*this);
-                    for ext in new_region.split_against(*this) {
-                        if !ext.overlaps(new_region) {
-                            // parts of previously existing region which
-                            // aren't overlapping the new region should be
-                            // re-added.
-                            to_add.insert(ext);
-                        }
+        for this in &self.regions {
+            if this.overlaps(new_region) {
+                // split the overlapped existing entry - first schedule
+                // removing it, then add in all the non-overlapping parts
+                // Since it started out as disjoint, we can directly add
+                // the split parts without needing to recurse.
+                to_remove.insert(*this);
+                for ext in new_region.split_against(*this) {
+                    if !ext.overlaps(new_region) {
+                        // parts of previously existing region which
+                        // aren't overlapping the new region should be
+                        // re-added.
+                        to_add.insert(ext);
                     }
                 }
             }
-            to_add.insert(new_region);
         }
-
-        if disjoint {
-            //println!("   Adding disjoint region {:?}", new_region);
-            self.regions.insert(new_region);
-            assert!(to_remove.is_empty());
-            self.check_disjoint();
-            return;
-        }
+        to_add.insert(new_region);
 
         for reg in to_remove {
             self.regions.remove(&reg);
         }
-        //println!(" add_recurse: {:?}", add_recurse);
         for reg in to_add {
             self.regions.insert(reg);
         }
-        for reg in add_recurse {
-            self.add(reg);
-        }
-        //println!("Post-add: {:?}", self);
-        //
     }
 
     fn subtract(&mut self, r: Region) {
-        //println!("Subtract: {:?} from {:?}", r, self);
         let mut to_add = HashSet::new();
         let mut to_remove = HashSet::new();
 
         for reg in &self.regions {
             if reg.overlaps(r) {
-                //println!("Subtracting region {:?} overlaps with {:?}", r, reg);
                 to_remove.insert(*reg);
                 let split_apart = r.split_against(*reg);
                 for part in split_apart {
@@ -358,10 +326,8 @@ impl RegionSet {
             self.regions.remove(&reg);
         }
         for reg in to_add {
-            // This may be a bad idea, but consider recursively adding it.
-            self.add(reg);
+            self.regions.insert(reg);
         }
-        //println!("Post-subtract: {:?}", self);
     }
 }
 
@@ -408,10 +374,8 @@ impl Reactor {
     }
 
     fn evaluate(&mut self, all_instructions: bool) {
-        let mut x = 0;
-        for instr in &self.instructions {
-            x += 1;
-            println!("  ** Instruction {}: {:?}", x, instr);
+        for (_x, instr) in self.instructions.iter().enumerate() {
+            //println!("  ** Instruction {}: {:?}", _x, instr);
             if all_instructions || instr.r.is_init_region() {
                 if instr.on {
                     self.regions.add(instr.r);
@@ -419,14 +383,6 @@ impl Reactor {
                     self.regions.subtract(instr.r);
                 }
             }
-            println!(
-                "  ** New volume: {} ({})",
-                self.regions.total_volume(),
-                self.regions.regions.len()
-            );
-            println!();
-
-            self.regions.check_disjoint();
         }
     }
 }
@@ -434,16 +390,17 @@ impl Reactor {
 pub fn step1() {
     let mut reactor = Reactor::new("inputs/day22.txt");
 
-    println!("{:?}", reactor);
     reactor.evaluate(false);
     // 561032
-    println!("total_volume {}", reactor.regions.total_volume());
+    println!(
+        "total_volume (init only) {}",
+        reactor.regions.total_volume()
+    );
 }
 
 pub fn step2() {
     let mut reactor = Reactor::new("inputs/day22.txt");
 
-    println!("{:?}", reactor);
     reactor.evaluate(true);
     // 1322825263376414
     println!("total_volume {}", reactor.regions.total_volume());
